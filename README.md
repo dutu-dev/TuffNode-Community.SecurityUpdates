@@ -78,7 +78,7 @@ Example:
   -Severity "high" `
   -Title "Security hardening" `
   -Summary "Fixes a verified security issue in the application." `
-  -PrivateKeyPath "D:\\offline-keys\\security-updates-signing-private.pem"
+  -PrivateKeyPath "D:\offline-keys\security-updates-signing-private.pem"
 ```
 
 The script writes three assets to `dist/<patchId>/`: `manifest.json`, `manifest.sig`, and the ZIP named by `manifest.package.assetName`. Publish them on a GitHub Release using the tag `security-<sequence>-<patchId>`. The `Validate security patch release` workflow verifies the signature, schemas, package digest, archive layout, payload hashes and path restrictions.
