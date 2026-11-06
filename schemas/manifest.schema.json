@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dutu-dev/TuffNode-Community.SecurityUpdates/blob/main/schemas/manifest.schema.json",
+  "title": "TuffNode Community Security Update Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "product",
+    "channel",
+    "patchId",
+    "sequence",
+    "issuedAtUtc",
+    "expiresAtUtc",
+    "signingKeyId",
+    "minimumAppVersion",
+    "maximumAppVersion",
+    "severity",
+    "title",
+    "summary",
+    "requiresRestart",
+    "package"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "product": {
+      "const": "TuffNode.Community"
+    },
+    "channel": {
+      "enum": [
+        "stable"
+      ]
+    },
+    "patchId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 80,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]+$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "issuedAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expiresAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "signingKeyId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 80,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]+$"
+    },
+    "minimumAppVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "maximumAppVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "severity": {
+      "enum": [
+        "low",
+        "moderate",
+        "high",
+        "critical"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "releaseNotes": {
+      "type": "string",
+      "maxLength": 10000
+    },
+    "requiresRestart": {
+      "type": "boolean",
+      "const": true
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assetName",
+        "sizeBytes",
+        "sha256",
+        "contentType"
+      ],
+      "properties": {
+        "assetName": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]+\\.zip$"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 104857600
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "contentType": {
+          "const": "application/zip"
+        }
+      }
+    }
+  }
+}
