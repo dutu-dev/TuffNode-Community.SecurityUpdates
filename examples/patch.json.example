@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "patchId": "2026.11.06.security.001",
+  "sequence": 1,
+  "operations": [
+    {
+      "operation": "replace",
+      "path": "TuffNode.App.dll",
+      "expectedCurrentSha256": "REPLACE_WITH_CURRENT_FILE_SHA256",
+      "sha256": "REPLACE_WITH_PATCHED_FILE_SHA256",
+      "sizeBytes": 123456
+    }
+  ]
+}
