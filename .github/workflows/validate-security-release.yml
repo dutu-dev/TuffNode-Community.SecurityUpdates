@@ -45,6 +45,8 @@ jobs:
             -signature release-assets/manifest.sig.bin release-assets/manifest.json
 
       - name: Validate schemas, package hashes and archive operations
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
