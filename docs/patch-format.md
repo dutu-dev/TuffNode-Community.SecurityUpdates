@@ -37,6 +37,6 @@ Before staging, the client must:
 
 The client stages verified files in an app-private directory with user-only access. After explicit user approval, a minimal updater host waits for the main process to exit, applies only the validated operations, and records each completed operation in a transaction journal. Existing files are backed up before replacement. Any failure triggers rollback in reverse order.
 
-The updater host runs with the current user's token. It never requests elevation silently and never executes package-provided commands or scripts. If the installation directory is not writable, installation fails safely and asks the user to use the normal installer or an explicitly elevated maintenance path.
+The updater host runs with the current user's token when the installation directory is writable. If the installation directory is protected (for example, under Program Files), the in-app approval is followed by the standard Windows UAC consent prompt. Elevation is never silent. After applying the transaction, the helper relaunches TuffNode through the unelevated interactive shell so the application does not remain elevated. The updater never executes package-provided commands or scripts.
 
 The main application restarts and reads the transaction result. Progress and status are presented in the TuffNode interface; the updater host has no separate installer UI.
