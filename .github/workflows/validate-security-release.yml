@@ -1,0 +1,152 @@
+name: Validate security patch release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published security release tag to validate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets
+          test -f release-assets/manifest.json
+          test -f release-assets/manifest.sig
+
+      - name: Verify RSA-PSS manifest signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode release-assets/manifest.sig > release-assets/manifest.sig.bin
+          openssl dgst -sha256 -verify keys/security-updates-rsa-public.pem \
+            -sigopt rsa_padding_mode:pss \
+            -sigopt rsa_pss_saltlen:digest \
+            -signature release-assets/manifest.sig.bin release-assets/manifest.json
+
+      - name: Validate schemas, package hashes and archive operations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check jsonschema==4.23.0
+          python3 - <<'PY'
+          import datetime
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import stat
+          import zipfile
+          from jsonschema import Draft202012Validator
+
+          root = pathlib.Path('.')
+          assets = pathlib.Path('release-assets')
+          manifest_path = assets / 'manifest.json'
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          Draft202012Validator.check_schema(json.loads((root / 'schemas/manifest.schema.json').read_text()))
+          Draft202012Validator(json.loads((root / 'schemas/manifest.schema.json').read_text())).validate(manifest)
+
+          tag = os.environ.get('GITHUB_REF_NAME', '')
+          if os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch':
+              tag = os.environ.get('RELEASE_TAG', tag)
+          expected_tag = f"security-{manifest['sequence']}-{manifest['patchId']}"
+          if tag and tag != expected_tag:
+              raise SystemExit(f"Release tag must be {expected_tag}; got {tag}")
+          if manifest['signingKeyId'] != 'tuffnode-security-2026-rsa3072-v1':
+              raise SystemExit('Unexpected signing key ID')
+
+          package = manifest['package']
+          package_path = assets / package['assetName']
+          if not package_path.is_file():
+              raise SystemExit(f"Missing package asset: {package['assetName']}")
+          package_bytes = package_path.read_bytes()
+          if len(package_bytes) != package['sizeBytes']:
+              raise SystemExit('Package byte length does not match the manifest')
+          if hashlib.sha256(package_bytes).hexdigest() != package['sha256'].lower():
+              raise SystemExit('Package SHA-256 does not match the manifest')
+          if len(package_bytes) > 100 * 1024 * 1024:
+              raise SystemExit('Package exceeds 100 MiB')
+
+          release_files = {p.name for p in assets.iterdir() if p.is_file() and p.name != 'manifest.sig.bin'}
+          if release_files != {'manifest.json', 'manifest.sig', package['assetName']}:
+              raise SystemExit(f'Unexpected release assets: {sorted(release_files)}')
+
+          with zipfile.ZipFile(package_path, 'r') as archive:
+              infos = archive.infolist()
+              if not 1 <= len(infos) <= 513:
+                  raise SystemExit('Archive entry count is outside the allowed range')
+              names = set()
+              expanded = 0
+              for info in infos:
+                  name = info.filename
+                  if not name or name.endswith('/') or '\\\\' in name or ':' in name or name.startswith('/') or any(ord(ch) < 32 for ch in name):
+                      raise SystemExit(f'Unsafe ZIP entry: {name!r}')
+                  if name.casefold() in names:
+                      raise SystemExit(f'Duplicate/case-colliding ZIP entry: {name}')
+                  names.add(name.casefold())
+                  mode = (info.external_attr >> 16) & 0xF000
+                  if mode not in (0, stat.S_IFREG):
+                      raise SystemExit(f'Non-regular ZIP entry: {name}')
+                  expanded += info.file_size
+                  if info.file_size > 50 * 1024 * 1024 or expanded > 100 * 1024 * 1024:
+                      raise SystemExit('Expanded archive exceeds configured size limits')
+                  if info.file_size and (not info.compress_size or info.file_size / info.compress_size > 100):
+                      raise SystemExit(f'Compression ratio too high: {name}')
+
+              if 'patch.json' not in names:
+                  raise SystemExit('Archive is missing patch.json')
+              descriptor = json.loads(archive.read('patch.json'))
+              patch_schema = json.loads((root / 'schemas/patch.schema.json').read_text())
+              Draft202012Validator.check_schema(patch_schema)
+              Draft202012Validator(patch_schema).validate(descriptor)
+              if descriptor['patchId'] != manifest['patchId'] or descriptor['sequence'] != manifest['sequence']:
+                  raise SystemExit('patch.json identity does not match the signed manifest')
+
+              expected = {'patch.json'}
+              seen_paths = set()
+              forbidden_dirs = {'patchrunner', 'securitypatches', 'servers', 'backups', 'logs', 'user-data', 'userdata', '.tuffnode-patch-staging'}
+              forbidden_ext = {'.ps1', '.psm1', '.psd1', '.bat', '.cmd', '.com', '.msi', '.msp', '.vbs', '.js', '.hta', '.lnk', '.url', '.reg', '.scr', '.sys'}
+              for operation in descriptor['operations']:
+                  path = operation['path']
+                  parts = path.split('/')
+                  if (not path or path.startswith('/') or '\\\\' in path or ':' in path or
+                      any(part in ('', '.', '..') or part.endswith(('.', ' ')) for part in parts) or
+                      parts[0].casefold() in forbidden_dirs or
+                      pathlib.PurePosixPath(path).suffix.casefold() in forbidden_ext or
+                      parts[-1].casefold() == 'tuffnode.patchrunner.exe'):
+                      raise SystemExit(f'Unsafe patch destination: {path}')
+                  if path.casefold() in seen_paths:
+                      raise SystemExit(f'Duplicate patch destination: {path}')
+                  seen_paths.add(path.casefold())
+                  if operation['operation'] in ('add', 'replace'):
+                      entry_name = 'payload/' + path
+                      expected.add(entry_name)
+                      data = archive.read(entry_name)
+                      if len(data) != operation['sizeBytes'] or hashlib.sha256(data).hexdigest() != operation['sha256'].lower():
+                          raise SystemExit(f'Payload integrity check failed: {path}')
+
+              if names != {name.casefold() for name in expected}:
+                  raise SystemExit('Archive contains missing or undeclared entries')
+          print(f"Validated {manifest['patchId']} (sequence {manifest['sequence']})")
+          PY
